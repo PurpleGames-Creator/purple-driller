@@ -732,221 +732,101 @@ class PurpleDiverGame {
     const w = this.logicalWidth;
     const h = this.logicalHeight;
     const d = this.depthMeters;
-    const segments = [
-      { from: 0, to: 500 },
-      { from: 500, to: 1500 },
-      { from: 1500, to: 3000 },
-      { from: 3000, to: 6000 },
-    ];
-    const tops = ["#8B4513", "#5e3110", "#382545", "#5b1b22"];
-    const mids = ["#633518", "#3c2412", "#231a35", "#7a1013"];
-    const bottoms = ["#382012", "#1f120b", "#130c26", "#2b0508"];
 
-    let idx = 0;
-    if (d > 500 && d <= 1500) idx = 1;
-    else if (d > 1500 && d <= 3000) idx = 2;
-    else if (d > 3000) idx = 3;
+    // 海中のベースグラデーション（0m では明るい水色、深くなるほど藍色へ）
+    const maxDepthForColor = 4000;
+    const t = Math.max(0, Math.min(1, d / maxDepthForColor));
 
-    let topColor, midColor, bottomColor;
-    if (idx === 0) {
-      topColor = groundColorAtDepth(d, 0);
-      midColor = groundColorAtDepth(d, -0.06);
-      bottomColor = groundColorAtDepth(d, -0.14);
-    } else {
-      const seg = segments[Math.min(idx, segments.length - 1)];
-      const prevIdx = idx - 1;
-      const range = seg.to - seg.from || 1;
-      const tRaw = Math.max(0, Math.min(1, (d - seg.from) / range));
-      topColor = lerpColorHex(tops[prevIdx], tops[idx], tRaw);
-      midColor = lerpColorHex(mids[prevIdx], mids[idx], tRaw);
-      bottomColor = lerpColorHex(bottoms[prevIdx], bottoms[idx], tRaw);
-    }
+    const surfaceTop = "#e4fbff";   // 水面付近のまぶしい水色
+    const surfaceMid = "#4fd1ff";   // ビビッドなライトブルー
+    const midBlue    = "#0077be";   // 中層の青
+    const deepIndigo = "#050526";   // 深海の藍色
 
-    // ベース：地中グラデーション
-    const dirtGrad = ctx.createLinearGradient(0, 0, 0, h);
-    dirtGrad.addColorStop(0, topColor);
-    dirtGrad.addColorStop(0.4, midColor);
-    dirtGrad.addColorStop(1, bottomColor);
-    ctx.fillStyle = dirtGrad;
+    const midBlend    = lerpColorHex(surfaceMid, midBlue, t * 0.6);
+    const bottomBlend = lerpColorHex(midBlue, deepIndigo, t);
+
+    const waterGrad = ctx.createLinearGradient(0, 0, 0, h);
+    waterGrad.addColorStop(0.0, surfaceTop);
+    waterGrad.addColorStop(0.12, surfaceMid);
+    waterGrad.addColorStop(0.5, midBlend);
+    waterGrad.addColorStop(1.0, bottomBlend);
+    ctx.fillStyle = waterGrad;
     ctx.fillRect(0, 0, w, h);
 
-    // 地層：堆積岩の層（横縞の微細な色差）
-    const strataSeed = ((this.bgOffset * 0.5) | 0) % 100000;
-    const rndStrata = seededNoise(strataSeed);
-    ctx.save();
-    ctx.globalAlpha = 0.12;
-    for (let sy = 0; sy < h + 40; sy += 18) {
-      const t = sy / h;
-      const layer = rndStrata() * 0.15 - 0.05;
-      ctx.fillStyle = `rgba(0,0,0,${layer})`;
-      ctx.fillRect(0, sy, w, 4);
-    }
-    ctx.restore();
-
-    // 土のノイズテクスチャ（ざらつき）
-    const noiseSeed = ((this.bgOffset * 2) | 0) % 100000;
+    // 水中のゆらめきノイズ（柔らかい光の揺らぎ）
+    const noiseSeed = ((this.bgOffset * 1.2) | 0) % 100000;
     const rnd = seededNoise(noiseSeed);
     ctx.save();
     ctx.globalAlpha = 0.08;
-    for (let nx = 0; nx < w; nx += 6) {
-      for (let ny = 0; ny < h; ny += 6) {
+    for (let nx = 0; nx < w; nx += 8) {
+      for (let ny = 0; ny < h; ny += 8) {
         const v = rnd();
-        ctx.fillStyle = v > 0.5 ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)";
-        ctx.fillRect(nx, ny, 3, 3);
+        const alpha = v > 0.5 ? 0.22 : 0.12;
+        ctx.fillStyle =
+          v > 0.5
+            ? `rgba(255, 255, 255, ${alpha})`
+            : `rgba(0, 40, 80, ${alpha * 0.7})`;
+        ctx.fillRect(nx, ny, 4, 4);
       }
     }
     ctx.restore();
 
-    // 根・化石・岩のディテール（地中のみ、薄く）
-    const detailSeed = ((this.bgOffset * 0.3) | 0) % 100000;
-    const rndD = seededNoise(detailSeed);
-    ctx.save();
-    ctx.strokeStyle = "rgba(60,40,25,0.2)";
-    ctx.lineWidth = 1.5;
-    ctx.lineCap = "round";
-    for (let i = 0; i < 12; i++) {
-      const x = (rndD() * w);
-      const y = (rndD() * h);
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + 8 + rndD() * 12, y + 4 + rndD() * 8);
-      ctx.stroke();
-    }
-    ctx.restore();
+    // 上部の海面表現（波とハイライト）
+    this._drawSeaSurface(w, h, d);
 
-    const darkness = idx === 0 ? 0 : Math.max(0, Math.min(0.4, (d / 100) * 0.01));
-    if (darkness > 0) {
-      ctx.fillStyle = `rgba(0, 0, 0, ${darkness})`;
-      ctx.fillRect(0, 0, w, h);
-    }
-
-    if (groundY <= 0) {
-      this._drawVignette(w, h, d);
-      return;
-    }
-
-    const skyBottom = Math.min(groundY, h);
-    const skyHeight = skyBottom;
-
-    // 空：大気散乱（地平線ほど明るく、上空ほど濃い青）
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, skyBottom);
-    skyGrad.addColorStop(0, "#4a7ba7");
-    skyGrad.addColorStop(0.5, "#6ba3d0");
-    skyGrad.addColorStop(0.85, "#9ec9e8");
-    skyGrad.addColorStop(1, "#c8e4f5");
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, w, skyBottom);
-
-    if (skyHeight > 20) {
-      this._drawSunWithBloom(w * 0.16, skyHeight * 0.3, Math.min(w, skyHeight) * 0.1, w, skyHeight);
-      this._drawCloud(w * 0.45, skyHeight * 0.35, 28);
-      this._drawCloud(w * 0.78, skyHeight * 0.5, 24);
-    }
-
-    const gy = groundY;
-
-    // 草と土の境界：影・根・小石を含む自然なグラデーション
-    const boundaryTop = gy - 28;
-    const boundaryGrad = ctx.createLinearGradient(0, boundaryTop, 0, gy + 24);
-    boundaryGrad.addColorStop(0, "rgba(25,80,25,0.25)");
-    boundaryGrad.addColorStop(0.2, "rgba(34,100,34,0.4)");
-    boundaryGrad.addColorStop(0.5, "rgba(60,75,40,0.5)");
-    boundaryGrad.addColorStop(0.75, "rgba(80,60,35,0.6)");
-    boundaryGrad.addColorStop(1, "rgba(101,67,33,0.85)");
-    ctx.fillStyle = boundaryGrad;
-    ctx.fillRect(0, boundaryTop, w, 52);
-
-    // 草原ベース：複数緑＋黄緑のノイズで密度感
-    const grassBaseSeed = ((this.bgOffset * 5) | 0) % 100000;
-    const rndBase = seededNoise(grassBaseSeed);
-    ctx.save();
-    ctx.globalAlpha = 0.92;
-    for (let bx = 0; bx < w + 30; bx += 3) {
-      for (let by = boundaryTop; by < gy + 6; by += 3) {
-        const v = rndBase();
-        const green = 90 + (v * 80) | 0;
-        const yellow = (v * 40) | 0;
-        ctx.fillStyle = `rgba(${40 + yellow},${green},${25 + yellow},0.9)`;
-        ctx.fillRect(bx, by, 4, 4);
-      }
-    }
-    ctx.restore();
-
-    // 芝生の筆致（多層・緑と黄緑の混ざった草の葉）
-    const grassSeed = ((this.bgOffset * 10) | 0) % 100000;
-    const rndG = seededNoise(grassSeed);
-    const sway = Math.sin((performance.now() * 0.002) + grassSeed * 0.01) * 2;
-    ctx.save();
-    ctx.lineCap = "round";
-    for (let layer = 0; layer < 3; layer++) {
-      const yOff = layer * 2;
-      const step = layer === 0 ? 2.5 : layer === 1 ? 3 : 4;
-      for (let gx = 0; gx < w + 30; gx += step) {
-        const bladeY = gy - 6 + (rndG() * 18) + yOff;
-        const bladeH = 8 + rndG() * 14;
-        const tilt = (rndG() - 0.5) * 0.4;
-        const g = 70 + rndG() * 70;
-        const r = 30 + rndG() * 25;
-        const b = 25 + rndG() * 20;
-        ctx.strokeStyle = `rgba(${r},${g},${b},${0.75 + layer * 0.08})`;
-        ctx.lineWidth = 1.1 + rndG() * 0.4;
-        ctx.beginPath();
-        ctx.moveTo(gx + sway, bladeY);
-        ctx.lineTo(
-          gx + tilt * bladeH + 1 + rndG() * 2 + sway * 0.5,
-          bladeY - bladeH
-        );
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
-
-    // 境界の根（曲線で土に潜る様子）
-    const rootSeed = ((this.bgOffset * 3) | 0) % 100000;
-    const rndRoot = seededNoise(rootSeed);
-    ctx.save();
-    ctx.strokeStyle = "rgba(45,55,35,0.55)";
-    ctx.lineWidth = 1.2;
-    ctx.lineCap = "round";
-    for (let i = 0; i < 14; i++) {
-      const rx = rndRoot() * w;
-      const ry = gy - 4 + rndRoot() * 12;
-      ctx.beginPath();
-      ctx.moveTo(rx, ry);
-      ctx.quadraticCurveTo(
-        rx + (rndRoot() - 0.5) * 20,
-        ry + 8 + rndRoot() * 10,
-        rx + (rndRoot() - 0.5) * 16,
-        ry + 18 + rndRoot() * 8
-      );
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // 境界の小石・土の粒
-    ctx.save();
-    const pebbleRnd = seededNoise(((this.bgOffset * 7) | 0) % 100000);
-    for (let i = 0; i < 16; i++) {
-      const px = pebbleRnd() * w;
-      const py = gy + pebbleRnd() * 14;
-      const size = 1.2 + pebbleRnd() * 2.5;
-      const gray = 65 + pebbleRnd() * 45;
-      ctx.fillStyle = `rgba(${gray},${gray - 10},${gray - 20},0.7)`;
-      ctx.beginPath();
-      ctx.arc(px, py, size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // 土エリア（グラデーションで自然な境界）: 地中のベース色(top/mid/bottom)と完全同期させる
-    const soilGrad = ctx.createLinearGradient(0, gy, 0, h);
-    soilGrad.addColorStop(0, topColor);
-    soilGrad.addColorStop(0.25, midColor);
-    soilGrad.addColorStop(1, bottomColor);
-    ctx.fillStyle = soilGrad;
-    ctx.fillRect(0, gy + 4, w, Math.max(0, h - gy - 4));
-
+    // 深くなるほど周辺光量を落とす
     this._drawVignette(w, h, d);
+  }
+
+  _drawSeaSurface(w, h, depth) {
+    const ctx = this.ctx;
+    const baseY = h * 0.12;
+    const waveAmp = 6;
+    const waveLen = 80;
+    const t = performance.now() * 0.001;
+
+    ctx.save();
+
+    // 水面付近の強いハイライト
+    const surfGrad = ctx.createLinearGradient(0, 0, 0, baseY);
+    surfGrad.addColorStop(0, "rgba(255,255,255,0.95)");
+    surfGrad.addColorStop(0.4, "rgba(224,248,255,0.9)");
+    surfGrad.addColorStop(1, "rgba(180,232,255,0.0)");
+    ctx.fillStyle = surfGrad;
+    ctx.fillRect(0, 0, w, baseY);
+
+    // 波打ち際の輪郭（さざ波）
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    for (let x = 0; x <= w + waveLen; x += 8) {
+      const y =
+        baseY +
+        Math.sin((x / waveLen) * Math.PI * 2 + t * 1.2) *
+          waveAmp *
+          (0.8 + 0.2 * Math.sin(t + x * 0.01));
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, 0);
+    ctx.lineTo(0, 0);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,0.22)";
+    ctx.fill();
+
+    // 水面上に走るハイライトライン
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.beginPath();
+    for (let x = 0; x < w; x += 40) {
+      const y =
+        baseY +
+        Math.sin(x / 50 + t * 1.6) * waveAmp * 0.7;
+      ctx.moveTo(x - 10, y);
+      ctx.lineTo(x + 10, y);
+    }
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   _drawSunWithBloom(sunX, sunY, baseR, w, skyH) {
