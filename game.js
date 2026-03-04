@@ -1,4 +1,4 @@
-// Canvas を用いた Purple Driller のゲームロジック
+// Canvas を用いた Purple Diver のゲームロジック
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
@@ -73,7 +73,7 @@ function seededNoise(seed) {
   };
 }
 
-class PurpleDrillerGame {
+class PurpleDiverGame {
   /**
    * @param {Object} options
    * @param {HTMLCanvasElement} options.canvas
@@ -121,7 +121,7 @@ class PurpleDrillerGame {
 
     // 進行
     this.depthMeters = 0;
-    this.scrollSpeedBase = 220; // px/sec（初期速度）
+    this.scrollSpeedBase = 220 * 1.3; // px/sec（初期速度を1.3倍に強化）
     this.scrollSpeedMax = 660; // 上限（base の約3倍）。これ以上は加速しない
     this.depthAtMaxSpeed = 1000; // この深さ（m）で最大速度に到達
     this.depthPerPixel = 0.05; // 1px 進むごとに 0.05m とする（以前の1/10）
@@ -134,7 +134,7 @@ class PurpleDrillerGame {
     this.keyLeft = false;
     this.keyRight = false;
     this.horizontalDir = 0;
-    this.horizontalSpeed = 220 * 1.2; // px/sec（元の1.2倍）
+    this.horizontalSpeed = 220 * 1.44; // px/sec（元の1.2倍×1.2＝操作感強化）
 
     // 障害物・アイテム
     this.bombs = [];
@@ -157,7 +157,12 @@ class PurpleDrillerGame {
     // 効果音（ドリル音は new Audio() でシンプル再生）
     this.drillSound = null;
     this.explosionSound = null;
-    this.landingSound = null;
+    this.landingSound = (() => {
+      const a = new Audio("./着地音.mp3");
+      a.loop = false;
+      a.volume = 0.05;
+      return a;
+    })();
     this.invincibleSound = null;
     this.drillMaxVolume = 0.02;
     this.drillFadeDurationMs = 100;
@@ -173,6 +178,15 @@ class PurpleDrillerGame {
 
     // 爆発演出
     this.explosion = null; // { x, y, startTime, duration }
+
+    // 無敵中の爆弾ブースト（2秒2倍速→2秒かけて通常へ）
+    this.bombBoostStartTime = 0;
+
+    // マイルストーン用フラッシュ・シェイク
+    this.screenFlashUntil = 0;
+    this.screenShakeUntil = 0;
+    this.screenShakeOffsetX = 0;
+    this.screenShakeOffsetY = 0;
 
     // バインド
     this._loop = this._loop.bind(this);
@@ -203,13 +217,17 @@ class PurpleDrillerGame {
     this.nextMilestone = 100;
     this.invincibleUntil = 0;
     this.boostUntil = 0;
+    this.bombBoostStartTime = 0;
+    this.screenFlashUntil = 0;
+    this.screenShakeUntil = 0;
     this.bgOffset = 0;
     this.lastTime = null;
 
     // 効果音を念のため停止
     this._stopDrillSound();
-    // GAME START クリック直後の処理として、ドリル音の準備（load）を行う
+    // GAME START クリック直後の処理として、ドリル音・着地音の準備（load）を行う
     this._prepareDrillSound();
+    if (this.landingSound) this.landingSound.load();
 
     if (this.depthLabelEl) this.depthLabelEl.textContent = "0";
 
@@ -259,11 +277,9 @@ class PurpleDrillerGame {
       this.charHalfWidth = this.charSize / 2;
     }
 
-    // 地平線の初期位置（画面のやや下）
-    this.horizonY = this.logicalHeight * 0.6;
-
-    // キャラクター着地位置：足元が地平線（緑のライン）にぴったり合うように設定
-    this.targetCharY = this.horizonY - this.charSize / 2;
+    // キャラクター固定位置を中央より上（0.4）にし、視界を確保
+    this.targetCharY = this.logicalHeight * 0.4;
+    this.horizonY = this.targetCharY + this.charSize / 2;
 
     if (this.state === "intro") {
       this.charX = this.logicalWidth / 2;
@@ -484,6 +500,19 @@ class PurpleDrillerGame {
       speed *= 1.6;
     }
 
+    // 無敵中の爆弾ブースト：最初2秒2倍速、続く2秒で滑らかに通常へ
+    if (this.bombBoostStartTime > 0) {
+      const elapsed = (performance.now() - this.bombBoostStartTime) / 1000;
+      if (elapsed >= 4) {
+        this.bombBoostStartTime = 0;
+      } else if (elapsed < 2) {
+        speed *= 2;
+      } else {
+        const t = (elapsed - 2) / 2;
+        speed *= 2 - t;
+      }
+    }
+
     // 深度更新
     this.depthMeters += speed * dt * this.depthPerPixel;
     if (this.depthLabelEl) {
@@ -618,7 +647,8 @@ class PurpleDrillerGame {
       );
       if (hit) {
         if (this.isInvincible) {
-          return false; // 無敵中はすり抜け（破壊）
+          this.bombBoostStartTime = performance.now();
+          return false; // 無敵中はすり抜け（破壊）＋ブースト発動
         } else {
           if (!hitBomb) {
             hitBomb = { x: bomb.x, y: bomb.y };
@@ -808,7 +838,7 @@ class PurpleDrillerGame {
     ctx.fillRect(0, 0, w, skyBottom);
 
     if (skyHeight > 20) {
-      this._drawSunWithBloom(w * 0.16, skyHeight * 0.3, Math.min(w, skyHeight) * 0.2, w, skyHeight);
+      this._drawSunWithBloom(w * 0.16, skyHeight * 0.3, Math.min(w, skyHeight) * 0.1, w, skyHeight);
       this._drawCloud(w * 0.45, skyHeight * 0.35, 28);
       this._drawCloud(w * 0.78, skyHeight * 0.5, 24);
     }
@@ -972,6 +1002,37 @@ class PurpleDrillerGame {
     ctx.restore();
   }
 
+  _drawBoostSpeedLines(w, h, timestamp) {
+    const ctx = this.ctx;
+    const t = timestamp * 0.015;
+    ctx.save();
+    ctx.globalAlpha = 0.35 + Math.sin(t) * 0.1;
+    ctx.strokeStyle = "rgba(255, 220, 100, 0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = "round";
+    const len = 28 + Math.sin(t * 1.3) * 8;
+    const corners = [
+      [0, 0, 1, 1],
+      [w, 0, -1, 1],
+      [w, h, -1, -1],
+      [0, h, 1, -1],
+    ];
+    corners.forEach(([cx, cy, dx, dy], idx) => {
+      for (let i = 0; i < 5; i++) {
+        const offset = (idx * 1.7 + i * 0.6 + t * 2) % 4;
+        const x0 = cx + (dx * (offset * 15));
+        const y0 = cy + (dy * (offset * 12));
+        const x1 = x0 + dx * (len + Math.sin(t + i) * 10);
+        const y1 = y0 + dy * (len * 0.6 + Math.cos(t + i * 0.7) * 8);
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+      }
+    });
+    ctx.restore();
+  }
+
   _renderPlaying(timestamp, isFinalFrame = false) {
     const ctx = this.ctx;
     const w = this.logicalWidth;
@@ -998,18 +1059,22 @@ class PurpleDrillerGame {
     this._drawBubbleParticles();
     this._drawInvincibleTrailParticles();
 
-    // マイルストーンテキスト
+    // マイルストーンテキスト（ズーム→ホールド→パーティクル爆発）
     this._drawMilestoneEffects();
 
     // キャラクターと無敵オーラ（左右端ループ描画）
     const inv = this.isInvincible;
     this._drawWrappedCharacter(this.charX, this.charY, inv, timestamp);
 
+    // 無敵中爆弾ブースト時のスピード線
+    if (this.bombBoostStartTime > 0) {
+      const elapsed = (performance.now() - this.bombBoostStartTime) / 1000;
+      if (elapsed < 4) this._drawBoostSpeedLines(w, h, timestamp);
+    }
+
     if (this.state === "gameover" && isFinalFrame) {
-      ctx.save();
       ctx.fillStyle = "rgba(255,64,96,0.25)";
       ctx.fillRect(0, 0, w, h);
-      ctx.restore();
     }
   }
 
@@ -1350,36 +1415,42 @@ class PurpleDrillerGame {
 
   _updateSparkParticles(dt, speed) {
     const maxCount = 180;
+    const spawnOne = () => {
+      if (this.sparkParticles.length > maxCount) return;
+      const angle = (Math.random() - 0.5) * Math.PI * 0.55;
+      const power = 120 + speed * 0.4 + Math.random() * 80;
+      const vx = Math.cos(angle) * power;
+      const vy = -Math.abs(Math.sin(angle) * power * 0.9);
+      const size = this.charSize * (0.04 + Math.random() * 0.03);
+      const lifeMax = 0.18 + Math.random() * 0.12;
+      const tipX = this.charX;
+      const tipY = this.charY + this.charSize * 0.42;
+      this.sparkParticles.push({
+        x: tipX,
+        y: tipY,
+        vx,
+        vy,
+        life: 0,
+        lifeMax,
+        size,
+      });
+    };
+
     const intensity = Math.max(0, Math.min(1, (this.depthMeters - 300) / 1500));
     if (intensity > 0.05) {
       const emission = (40 + speed * 0.25) * intensity;
       const expected = emission * dt;
       const count = Math.floor(expected);
       const extra = expected - count;
-
-      const spawnOne = () => {
-        if (this.sparkParticles.length > maxCount) return;
-        const angle = (Math.random() - 0.5) * Math.PI * 0.55;
-        const power = 120 + speed * 0.4 + Math.random() * 80;
-        const vx = Math.cos(angle) * power;
-        const vy = -Math.abs(Math.sin(angle) * power * 0.9);
-        const size = this.charSize * (0.04 + Math.random() * 0.03);
-        const lifeMax = 0.18 + Math.random() * 0.12;
-        const tipX = this.charX;
-        const tipY = this.charY + this.charSize * 0.42;
-        this.sparkParticles.push({
-          x: tipX,
-          y: tipY,
-          vx,
-          vy,
-          life: 0,
-          lifeMax,
-          size,
-        });
-      };
-
       for (let i = 0; i < count; i++) spawnOne();
       if (Math.random() < extra) spawnOne();
+    }
+
+    if (this.bombBoostStartTime > 0) {
+      const elapsed = (performance.now() - this.bombBoostStartTime) / 1000;
+      if (elapsed < 4) {
+        for (let i = 0; i < 6; i++) spawnOne();
+      }
     }
 
     this.sparkParticles.forEach((p) => {
@@ -1609,12 +1680,8 @@ class PurpleDrillerGame {
   }
 
   _playLandingSound() {
+    if (!this.landingSound) return;
     try {
-      if (!this.landingSound) {
-        this.landingSound = new Audio("./着地音.mp3");
-        this.landingSound.loop = false;
-        this.landingSound.volume = 0.15; // 耳に優しい音量
-      }
       this.landingSound.currentTime = 0;
       const p = this.landingSound.play();
       if (p && typeof p.catch === "function") {
@@ -1660,17 +1727,44 @@ class PurpleDrillerGame {
   }
 
   _updateMilestones(dt) {
+    const now = performance.now();
     while (this.depthMeters >= this.nextMilestone) {
       this.milestoneEffects.push({
         value: this.nextMilestone,
         life: 0,
-        lifeMax: 1,
+        lifeMax: 2.5,
+        particles: [],
+        particlesSpawned: false,
       });
+      this.screenFlashUntil = now + 180;
+      this.screenShakeUntil = now + 380;
       this.nextMilestone += 100;
     }
 
     this.milestoneEffects.forEach((m) => {
       m.life += dt;
+      if (m.life >= 0.7 && !m.particlesSpawned) {
+        m.particlesSpawned = true;
+        const count = 24;
+        for (let i = 0; i < count; i++) {
+          const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+          const speed = 80 + Math.random() * 120;
+          m.particles.push({
+            x: 0,
+            y: 0,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 0,
+            lifeMax: 0.7 + Math.random() * 0.3,
+          });
+        }
+      }
+      m.particles.forEach((p) => {
+        p.life += dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      });
+      m.particles = m.particles.filter((p) => p.life < p.lifeMax);
     });
     this.milestoneEffects = this.milestoneEffects.filter(
       (m) => m.life < m.lifeMax
@@ -1688,28 +1782,55 @@ class PurpleDrillerGame {
     ctx.textBaseline = "middle";
 
     this.milestoneEffects.forEach((m) => {
-      const t = Math.min(1, m.life / m.lifeMax);
-      const alpha = 1 - t;
-      const scale = 1 + 0.4 * (1 - t);
-      const y = h * 0.45 - t * h * 0.15;
+      const life = m.life;
+      const lifeMax = m.lifeMax;
 
-      ctx.save();
-      ctx.translate(w / 2, y);
-      ctx.scale(scale, scale);
-      ctx.globalAlpha = alpha;
-      ctx.font = `bold ${Math.min(
-        32,
-        h * 0.06
-      )}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      const text = `${m.value}m REACHED!`;
+      if (life < 0.7) {
+        const phase = life < 0.5 ? "zoom" : "hold";
+        const zoomT = life < 0.5 ? life / 0.5 : 1;
+        const scale = phase === "zoom" ? 0.25 + 0.95 * zoomT : 1.2;
+        const alpha = phase === "zoom" ? zoomT : 1;
+        const y = h * 0.26;
 
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = "rgba(0,0,0,0.9)";
-      ctx.strokeText(text, 0, 0);
-      ctx.fillStyle = "#facc15";
-      ctx.fillText(text, 0, 0);
+        ctx.save();
+        ctx.translate(w / 2, y);
+        ctx.scale(scale, scale);
+        ctx.globalAlpha = alpha;
+        const fontSize = Math.min(
+          Math.floor(72 * 0.65),
+          Math.floor(h * 0.078),
+          Math.floor((w * 0.85) / 10)
+        );
+        ctx.font = `bold ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+        const text = `${m.value}m REACHED!`;
+        ctx.shadowColor = "rgba(255, 215, 0, 0.98)";
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = "#ffd700";
+        ctx.fillText(text, 0, 0);
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = "rgba(255, 250, 205, 0.9)";
+        ctx.fillText(text, 0, 0);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "rgba(0,0,0,0.9)";
+        ctx.lineWidth = Math.max(3, fontSize * 0.08);
+        ctx.strokeText(text, 0, 0);
+        ctx.fillStyle = "#fffacd";
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
+      }
 
-      ctx.restore();
+      m.particles.forEach((p) => {
+        const t = p.life / p.lifeMax;
+        const alpha = 1 - t;
+        ctx.save();
+        ctx.translate(w / 2 + p.x, h * 0.26 + p.y);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = `rgba(255, 215, 0, ${alpha})`;
+        ctx.shadowColor = "rgba(255, 200, 50, 0.9)";
+        ctx.shadowBlur = 8;
+        ctx.fillRect(-3, -3, 6, 6);
+        ctx.restore();
+      });
     });
 
     ctx.restore();
@@ -1942,10 +2063,10 @@ class PurpleDrillerGame {
 
 // エントリーポイント（main.js から呼び出し）
 (() => {
-  /** @type {PurpleDrillerGame | null} */
+  /** @type {PurpleDiverGame | null} */
   let currentGame = null;
 
-  window.startPurpleDrillerGame = function (options) {
+  window.startPurpleDiverGame = function (options) {
     const { nickname } = options || {};
     if (currentGame) {
       currentGame.destroy();
@@ -1956,7 +2077,7 @@ class PurpleDrillerGame {
     const depthLabelEl = document.getElementById("depth-value");
     if (!canvas || !depthLabelEl) return;
 
-    currentGame = new PurpleDrillerGame({
+    currentGame = new PurpleDiverGame({
       canvas,
       depthLabelEl,
       nickname,
@@ -1973,8 +2094,8 @@ class PurpleDrillerGame {
           console.error("スコア送信中にエラーが発生しました:", e);
         }
 
-        if (typeof window.handlePurpleDrillerGameOver === "function") {
-          window.handlePurpleDrillerGameOver({ nickname, finalDepth: rounded });
+        if (typeof window.handlePurpleDiverGameOver === "function") {
+          window.handlePurpleDiverGameOver({ nickname, finalDepth: rounded });
         }
       },
     });
@@ -1982,6 +2103,6 @@ class PurpleDrillerGame {
     currentGame.start();
   };
 
-  window.PurpleDrillerGame = PurpleDrillerGame;
+  window.PurpleDiverGame = PurpleDiverGame;
 })();
 

@@ -52,13 +52,13 @@ document.addEventListener("DOMContentLoaded", () => {
     screenGame.classList.add("screen--active");
 
     // ゲーム開始（start() 内でドリル音の load を実行）
-    if (window.startPurpleDrillerGame) {
-      window.startPurpleDrillerGame({ nickname });
+    if (window.startPurpleDiverGame) {
+      window.startPurpleDiverGame({ nickname });
     }
   });
 
   // ゲームオーバー時に呼ばれるグローバルハンドラ（game.js から）
-  window.handlePurpleDrillerGameOver = function ({ nickname, finalDepth }) {
+  window.handlePurpleDiverGameOver = function ({ nickname, finalDepth }) {
     lastGameOverNickname = nickname;
 
     // スコア表示のカウントアップ演出
@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ローカルベスト判定
-    const key = "purpleDrillerBestDepth";
+    const key = "purpleDiverBestDepth";
     const prev = Number(localStorage.getItem(key) || "0");
     const isNewRecord = finalDepth > prev;
     if (isNewRecord) {
@@ -121,10 +121,10 @@ document.addEventListener("DOMContentLoaded", () => {
     retryButton.addEventListener("click", async () => {
       hideGameoverOverlay();
       const nickname = lastGameOverNickname || nicknameInput.value.trim();
-      if (!nickname || !window.startPurpleDrillerGame) return;
+      if (!nickname || !window.startPurpleDiverGame) return;
       screenHome.classList.remove("screen--active");
       screenGame.classList.add("screen--active");
-      window.startPurpleDrillerGame({ nickname });
+      window.startPurpleDiverGame({ nickname });
     });
   }
 

@@ -2,7 +2,7 @@
 // 実際のSupabaseクライアントは supabase-config.js (開発者が作成) で
 // window.supabaseClient として注入されている想定です。
 
-const RANKING_TABLE = "scores_purple_driller";
+const RANKING_TABLE = "scores_purple_diver";
 
 /**
  * スコア送信
