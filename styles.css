@@ -92,7 +92,7 @@ body {
 }
 
 .hero {
-  margin-top: 20px;
+  margin-top: 14px;
   display: flex;
   justify-content: center;
 }
@@ -106,8 +106,8 @@ body {
 
 .hero-image {
   display: block;
-  width: 42.666vw; /* 64vw の約 2/3 */
-  max-width: 153px; /* 230px の約 2/3 */
+  width: 180px;
+  max-width: 40%;
   height: auto;
   border-radius: 30px;
   background: radial-gradient(circle at 25% 15%, #ffe3ff 0, #9b5cff 42%, #2b135c);
@@ -167,7 +167,7 @@ body {
 }
 
 .form-section {
-  margin-top: 20px;
+  margin-top: 12px;
   padding: 14px 14px 16px;
   border-radius: var(--radius-lg);
   background: radial-gradient(circle at top left, rgba(155, 92, 255, 0.25), rgba(16, 6, 46, 0.9));

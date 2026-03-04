@@ -443,7 +443,9 @@ class PurpleDiverGame {
       return;
     }
 
-    const dt = (timestamp - this.lastTime) / 1000;
+    // 経過時間（秒）。急激なフレーム落ち時のスパイクを抑えるため上限を設ける
+    const rawDt = (timestamp - this.lastTime) / 1000;
+    const dt = Math.min(rawDt, 1 / 30); // 最大でも約 33ms 分として扱う
     this.lastTime = timestamp;
 
     if (this.state === "intro") {
