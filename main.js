@@ -192,7 +192,7 @@ async function loadRanking(range) {
     li.innerHTML = `
       <span class="ranking-rank">${medal || rank}</span>
       <span class="ranking-name">${escapeHtml(row.nickname ?? "No Name")}</span>
-      <span class="ranking-score">${row.depth_m ?? 0}m</span>
+      <span class="ranking-score">${row.score ?? 0}m</span>
     `;
     listEl.appendChild(li);
   });

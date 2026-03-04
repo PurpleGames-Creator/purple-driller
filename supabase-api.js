@@ -20,7 +20,7 @@ async function submitScore({ nickname, depthMeters }) {
     .from(RANKING_TABLE)
     .insert({
       nickname,
-      depth_m: depthMeters,
+      score: depthMeters,
     })
     .select()
     .single();
@@ -50,7 +50,7 @@ async function fetchRanking(range) {
   let query = window.supabaseClient
     .from(RANKING_TABLE)
     .select("*")
-    .order("depth_m", { ascending: false })
+    .order("score", { ascending: false })
     .order("created_at", { ascending: true })
     .limit(100);
 
