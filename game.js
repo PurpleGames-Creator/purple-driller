@@ -121,6 +121,7 @@ class PurpleDiverGame {
     this.rafId = null;
 
     // 進行
+    // 初期深度（0m）からスタート
     this.depthMeters = 0;
     // スタート時の初速をこれまでより 1.5 倍程度に強化
     this.scrollSpeedBase = 220 * 1.95; // px/sec
@@ -168,6 +169,25 @@ class PurpleDiverGame {
     this.sparkParticles = []; // 火花
     this.bubbleParticles = []; // ビールの泡
     this.invincibleTrailParticles = []; // 無敵オーブの残像
+
+    // 巨大宝箱関連
+    this.treasureImage = new Image();
+    this.treasureImageLoaded = false;
+    this.treasureImage.src = "./宝箱.png";
+    this.treasureImage.onload = () => {
+      this.treasureImageLoaded = true;
+    };
+    this.treasure = null; // { x, y, width, height, radius }
+    this.treasureSpawned = false;
+
+    // 宝箱取得時の「Congratulations!」演出（3秒間）
+    this.superCongratsUntil = 0;
+    this.superCongratsActive = false;
+    this.goldParticles = [];
+
+    // DOM 要素（演出オーバーレイ制御用）
+    this.gameSectionEl = document.querySelector(".game-section");
+    this.superCongratsEl = document.getElementById("super-congrats");
 
     // 効果音（ドリル音はシンプルな Audio オブジェクトで再生）
     this.drillSound = null;
@@ -223,6 +243,7 @@ class PurpleDiverGame {
     this.introStartTime = null;
     this.landingStartTime = null;
     this.introVelocityY = 0;
+    // リスタート時も 0m から開始
     this.depthMeters = 0;
     this.bombs = [];
     this.beers = [];
@@ -238,6 +259,19 @@ class PurpleDiverGame {
     this.screenShakeUntil = 0;
     this.bgOffset = 0;
     this.lastTime = null;
+
+    // 宝箱・超豪華演出の状態リセット
+    this.treasure = null;
+    this.treasureSpawned = false;
+    this.superCongratsUntil = 0;
+    this.superCongratsActive = false;
+    this.goldParticles = [];
+    if (this.gameSectionEl) {
+      this.gameSectionEl.classList.remove("gold-aura-effect");
+    }
+    if (this.superCongratsEl) {
+      this.superCongratsEl.classList.remove("super-flashy-congrats--visible");
+    }
 
     // 効果音を念のため停止
     this._stopDrillSound();
@@ -279,6 +313,10 @@ class PurpleDiverGame {
 
   get isInvincible() {
     return performance.now() < this.invincibleUntil;
+  }
+
+  _isSuperCongratsActive() {
+    return performance.now() < this.superCongratsUntil;
   }
 
   _handleResize() {
@@ -473,6 +511,7 @@ class PurpleDiverGame {
         this.state = "playing";
         console.log("[BOOT] G6. state=playing に遷移（掘削開始）");
         this._startDrillSound();
+        // 掘削開始時の深度も 0m にリセット
         this.depthMeters = 0;
         this.bombs = [];
         this.beers = [];
@@ -557,6 +596,11 @@ class PurpleDiverGame {
       this.depthLabelEl.textContent = Math.floor(this.depthMeters).toString();
     }
 
+    // 651m 到達時に巨大宝箱を1度だけ出現させる
+    if (!this.treasureSpawned && this.depthMeters >= 651) {
+      this._spawnTreasure();
+    }
+
     // 背景オフセット
     this.bgOffset = (this.bgOffset + speed * dt) % this.logicalHeight;
 
@@ -604,6 +648,13 @@ class PurpleDiverGame {
     this.beers.forEach((b) => {
       b.y += deltaY;
     });
+    if (this.treasure) {
+      this.treasure.y += deltaY;
+      // 画面外まで流れきったら消去
+      if (this.treasure.y + this.treasure.height / 2 < 0) {
+        this.treasure = null;
+      }
+    }
     this.dustParticles.forEach((p) => {
       p.y += deltaY;
     });
@@ -637,8 +688,22 @@ class PurpleDiverGame {
       (p) => p.life < p.lifeMax && p.y + p.size > 0
     );
 
+    // 金色パーティクル（宝箱取得時のゴールドシャワー）
+    this._updateGoldParticles(dt, speed);
+
     // 当たり判定
     this._handleCollisions();
+
+    // 「Congratulations!」演出が終わったら DOM クラスをフェードアウト
+    if (this.superCongratsActive && !this._isSuperCongratsActive()) {
+      this.superCongratsActive = false;
+      if (this.gameSectionEl) {
+        this.gameSectionEl.classList.remove("gold-aura-effect");
+      }
+      if (this.superCongratsEl) {
+        this.superCongratsEl.classList.remove("super-flashy-congrats--visible");
+      }
+    }
   }
 
   _spawnEntities(dt) {
@@ -676,6 +741,24 @@ class PurpleDiverGame {
     }
   }
 
+  _spawnTreasure() {
+    this.treasureSpawned = true;
+    // 魚雷（bomb）の幅・高さを基準に 3 倍のサイズで宝箱を定義
+    const bombR = this.bombRadius;
+    const bombBodyLength = bombR * 3.8;
+    const bombBodyHeight = bombR * 0.95 * 2;
+    const width = bombBodyLength * 3; // 幅 3倍
+    const height = bombBodyHeight * 3; // 高さ 3倍
+
+    this.treasure = {
+      x: this.logicalWidth / 2,
+      y: this.logicalHeight + height / 2,
+      width,
+      height,
+      radius: Math.max(width, height) / 2,
+    };
+  }
+
   _handleCollisions() {
     const W = this.logicalWidth;
     const cx = this.charX;
@@ -693,6 +776,25 @@ class PurpleDiverGame {
     }
     if (baseRx + rw > W) {
       rects.push({ rx: baseRx - W, ry }); // 右にはみ出し → 左側ゴースト
+    }
+
+    // 宝箱取得（651m到達後に1度だけ出現）
+    if (this.treasure) {
+      const hitTreasure = rects.some(({ rx, ry }) =>
+        this._circleRectIntersect(
+          this.treasure.x,
+          this.treasure.y,
+          this.treasure.radius,
+          rx,
+          ry,
+          rw,
+          rh
+        )
+      );
+      if (hitTreasure) {
+        this._onTreasureCollected();
+        this.treasure = null;
+      }
     }
 
     // ビール取得（無敵）
@@ -723,7 +825,7 @@ class PurpleDiverGame {
         )
       );
       if (hit) {
-        if (this.isInvincible) {
+        if (this.isInvincible || this._isSuperCongratsActive()) {
           this.bombBoostStartTime = performance.now();
           return false; // 無敵中はすり抜け（破壊）＋ブースト発動
         } else {
@@ -963,8 +1065,13 @@ class PurpleDiverGame {
 
     ctx.clearRect(0, 0, w, h);
 
-    // 空 → 地面 → 地中がシームレスにスクロールする背景
+    // 海中背景
     this._renderBackgroundWithHorizon(this.horizonY);
+
+    // 巨大宝箱
+    if (this.treasure) {
+      this._drawTreasure(this.treasure, timestamp);
+    }
 
     // 爆弾
     this.bombs.forEach((bomb) => {
@@ -982,8 +1089,11 @@ class PurpleDiverGame {
     this._drawBubbleParticles();
     this._drawInvincibleTrailParticles();
 
+    // 宝箱取得時の金色パーティクル（ゴールドシャワー）
+    this._drawGoldParticles();
+
     // キャラクターと無敵オーラ（左右端ループ描画）
-    const inv = this.isInvincible;
+    const inv = this.isInvincible || this._isSuperCongratsActive();
     this._drawWrappedCharacter(this.charX, this.charY, inv, timestamp);
 
     // 無敵時も画面全体の追加エフェクトは描かず、キャラ周りのオーラのみ表示
@@ -1127,6 +1237,21 @@ class PurpleDiverGame {
       ctx.fillStyle = "#9b5cff";
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 宝箱取得中はキャラクター全体を金色のオーラで包む
+    if (this._isSuperCongratsActive()) {
+      const auraR = size * 1.4;
+      const gradGold = ctx.createRadialGradient(x, y, 0, x, y, auraR);
+      gradGold.addColorStop(0, "rgba(253, 224, 71, 0.95)");
+      gradGold.addColorStop(0.35, "rgba(250, 204, 21, 0.7)");
+      gradGold.addColorStop(0.75, "rgba(251, 191, 36, 0.25)");
+      gradGold.addColorStop(1, "rgba(251, 191, 36, 0)");
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = gradGold;
+      ctx.beginPath();
+      ctx.arc(x, y, auraR, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -1502,6 +1627,45 @@ class PurpleDiverGame {
     ctx.restore();
   }
 
+  _updateGoldParticles(dt, speed) {
+    if (!this.goldParticles.length) return;
+    const grav = this.charSize * 12;
+    this.goldParticles.forEach((p) => {
+      p.life += dt;
+      const t = p.life / p.lifeMax;
+      // 放射状に広がったあと、落下してくるように移動
+      p.x += p.vx * dt;
+      p.y += p.vy * dt + speed * dt * 0.2;
+      p.vy += grav * dt * 0.2;
+      p.alpha = 1 - t;
+    });
+    this.goldParticles = this.goldParticles.filter(
+      (p) => p.life < p.lifeMax && p.alpha > 0
+    );
+  }
+
+  _drawGoldParticles() {
+    const ctx = this.ctx;
+    if (!this.goldParticles.length) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    this.goldParticles.forEach((p) => {
+      const alpha = Math.max(0, Math.min(1, p.alpha ?? 1));
+      const r = p.size;
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      grad.addColorStop(0, `rgba(253, 224, 71, ${alpha})`);
+      grad.addColorStop(0.35, `rgba(250, 204, 21, ${alpha * 0.85})`);
+      grad.addColorStop(0.8, `rgba(245, 158, 11, ${alpha * 0.4})`);
+      grad.addColorStop(1, "rgba(245, 158, 11, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
   /**
    * ドリル音のフェード（volume を durationMs かけて targetVolume へ）
    * @param {number} targetVolume 目標ボリューム（0〜1）
@@ -1673,6 +1837,144 @@ class PurpleDiverGame {
   }
 
   // マイルストーン用の更新／描画ロジックは不要になったため削除済み
+
+  _drawTreasure(treasure, timestamp) {
+    const ctx = this.ctx;
+    const { x, y, width, height } = treasure;
+    const bob =
+      Math.sin((timestamp || performance.now()) * 0.004) * height * 0.06;
+
+    ctx.save();
+    const drawX = x - width / 2;
+    const drawY = y - height / 2 + bob;
+
+    if (this.treasureImageLoaded && this.treasureImage) {
+      // PNG アセットで豪華な宝箱を描画
+      ctx.drawImage(this.treasureImage, drawX, drawY, width, height);
+    } else {
+      // フォールバック：シンプルな金色宝箱をベクター描画
+      const lidHeight = height * 0.3;
+      const bodyHeight = height * 0.7;
+
+      // 本体
+      const bodyGrad = ctx.createLinearGradient(
+        drawX,
+        drawY + lidHeight,
+        drawX + width,
+        drawY + lidHeight + bodyHeight
+      );
+      bodyGrad.addColorStop(0, "#92400e");
+      bodyGrad.addColorStop(0.4, "#fbbf24");
+      bodyGrad.addColorStop(0.8, "#b45309");
+      bodyGrad.addColorStop(1, "#451a03");
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.roundRect(
+        drawX,
+        drawY + lidHeight,
+        width,
+        bodyHeight,
+        height * 0.08
+      );
+      ctx.fill();
+
+      // フタ
+      const lidGrad = ctx.createLinearGradient(
+        drawX,
+        drawY,
+        drawX,
+        drawY + lidHeight
+      );
+      lidGrad.addColorStop(0, "#fef3c7");
+      lidGrad.addColorStop(1, "#f59e0b");
+      ctx.fillStyle = lidGrad;
+      ctx.beginPath();
+      ctx.roundRect(drawX, drawY, width, lidHeight, height * 0.18);
+      ctx.fill();
+
+      // 中央の金属バンド
+      const bandWidth = width * 0.16;
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(
+        x - bandWidth / 2,
+        drawY + lidHeight,
+        bandWidth,
+        bodyHeight
+      );
+
+      // 施錠金具
+      const lockH = bodyHeight * 0.35;
+      ctx.beginPath();
+      ctx.roundRect(
+        x - bandWidth * 0.35,
+        drawY + lidHeight + bodyHeight * 0.25,
+        bandWidth * 0.7,
+        lockH,
+        height * 0.05
+      );
+      ctx.fillStyle = "#fbbf24";
+      ctx.fill();
+    }
+
+    // 周囲のきらめき
+    const glowR = Math.max(width, height) * 0.75;
+    const glowGrad = ctx.createRadialGradient(
+      x,
+      y + bob,
+      0,
+      x,
+      y + bob,
+      glowR
+    );
+    glowGrad.addColorStop(0, "rgba(253, 224, 71, 0.65)");
+    glowGrad.addColorStop(0.4, "rgba(250, 204, 21, 0.5)");
+    glowGrad.addColorStop(1, "rgba(250, 250, 210, 0)");
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = glowGrad;
+    ctx.beginPath();
+    ctx.arc(x, y + bob, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  _onTreasureCollected() {
+    const now = performance.now();
+    // 3秒間の無敵＋豪華演出
+    this.invincibleUntil = Math.max(this.invincibleUntil, now + 3000);
+    this.superCongratsUntil = now + 3000;
+    this.superCongratsActive = true;
+
+    // DOM オーバーレイ（Congratulations! テキスト＆黄金オーラ）
+    if (this.gameSectionEl) {
+      this.gameSectionEl.classList.add("gold-aura-effect");
+    }
+    if (this.superCongratsEl) {
+      this.superCongratsEl.classList.add("super-flashy-congrats--visible");
+    }
+
+    // 中心から放射状に広がり降り注ぐ金色パーティクル
+    const originX = this.charX;
+    const originY = this.charY;
+    this.goldParticles = [];
+    const count = 260;
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.random() * Math.PI * 2);
+      const speed = this.charSize * (6 + Math.random() * 10);
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed * 0.7;
+      this.goldParticles.push({
+        x: originX,
+        y: originY,
+        vx,
+        vy,
+        life: 0,
+        lifeMax: 3.0,
+        alpha: 1,
+        size: this.charSize * (0.12 + Math.random() * 0.16),
+      });
+    }
+  }
 
   _drawBomb(bomb, timestamp) {
     const ctx = this.ctx;
