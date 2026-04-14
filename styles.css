@@ -78,8 +78,26 @@ body {
 
 /* トップ画面レイアウト */
 .header {
+  position: relative;
   text-align: center;
   padding-top: 8px;
+}
+
+.home-logo-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  text-decoration: none;
+}
+
+.home-logo-image {
+  display: block;
+  width: clamp(56px, 14vw, 78px);
+  height: auto;
 }
 
 .title {
